@@ -520,7 +520,14 @@ static this()
 		"euro"  : '\&euro;'  ,
 		"copy"  : '\&copy;'  ,
 		"reg"   : '\&reg;'   ,
-		"apos"  : '\''
+		"apos"  : '\''       ,
+        "auml"  : '\&auml;'  ,
+        "ouml"  : '\&ouml;'  ,
+        "uuml"  : '\&uuml;'  ,
+        "szlig" : '\&szlig;' ,
+        "Auml"  : '\&Auml;'  ,
+        "Ouml"  : '\&Ouml;'  ,
+        "Uuml"  : '\&Uuml;'  ,
 	];
 	foreach (name, c; entities)
 		entityNames[c] = name;
@@ -596,4 +603,5 @@ unittest
 {
 	assert(encodeAllEntities("©,€") == "&copy;,&euro;");
 	assert(decodeEntities("&copy;,&euro;") == "©,€");
+    assert(decodeEntities("&auml;&ouml;&uuml;&szlig;&Auml;&Ouml;&Uuml;") == "äöüßÄÖÜ");
 }
