@@ -65,8 +65,8 @@ unittest
 
 int memcmp(in ubyte[] a, in ubyte[] b)
 {
-	import core.stdc.string;
 	assert(a.length == b.length);
+	import core.stdc.string : memcmp;
 	return memcmp(a.ptr, b.ptr, a.length);
 }
 
@@ -74,8 +74,8 @@ int memcmp(in ubyte[] a, in ubyte[] b)
 /// https://issues.dlang.org/show_bug.cgi?id=13650
 void memmove(T)(T[] dst, in T[] src)
 {
-	import core.stdc.string;
 	assert(src.length == dst.length);
+	import core.stdc.string : memmove;
 	memmove(dst.ptr, src.ptr, dst.length * T.sizeof);
 }
 
@@ -335,10 +335,13 @@ T[] skipUntil(T, D)(ref T[] source, D delim, bool orUntilEnd = false)
 	else
 		enum delimLength = 1;
 
-	// bring in all overloads at the same level
-	import std.string, ae.utils.array;
+	static if (is(typeof(ae.utils.array.indexOf(source, delim))))
+		alias indexOf = ae.utils.array.indexOf;
+	else
+	static if (is(typeof(std.string.indexOf(source, delim))))
+		alias indexOf = std.string.indexOf;
 
-	auto i = source.indexOf(delim);
+	auto i = indexOf(source, delim);
 	if (i < 0)
 	{
 		if (orUntilEnd)
