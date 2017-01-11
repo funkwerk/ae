@@ -132,13 +132,21 @@ sizediff_t indexOf(T)(in T[] arr, in T[] val) /// ditto
 	return arr.countUntil(val);
 }
 
-bool contains(T, V)(T[] arr, V val)
+/// Index of element, no BS.
+sizediff_t indexOfElement(T, D)(in T[] arr, auto ref in D val)
 	if (is(typeof(arr[0]==val)))
 {
-	foreach (v; arr)
+	foreach (i, ref v; arr)
 		if (v == val)
-			return true;
-	return false;
+			return i;
+	return -1;
+}
+
+/// Whether array contains value, no BS.
+bool contains(T, V)(in T[] arr, auto ref in V val)
+	if (is(typeof(arr[0]==val)))
+{
+	return arr.indexOfElement(val) >= 0;
 }
 
 /// Like startsWith, but with an offset.
@@ -191,6 +199,14 @@ ref T getExpand(T)(ref T[] arr, size_t index)
 	return arr[index];
 }
 
+/// ditto
+ref T putExpand(T)(ref T[] arr, size_t index, auto ref T value)
+{
+	if (index >= arr.length)
+		arr.length = index + 1;
+	return arr[index] = value;
+}
+
 /// Slices an array. Throws an Exception (not an Error)
 /// on out-of-bounds, even in release builds.
 T[] slice(T)(T[] arr, size_t p0, size_t p1)
@@ -208,6 +224,12 @@ size_t sliceIndex(T)(in T[] arr, in T[] slice)
 	auto p = slice.ptr;
 	assert(a <= p && p <= b, "Out-of-bounds array slice");
 	return p - a;
+}
+
+/// Like std.array.split, but returns null if val was empty.
+auto splitEmpty(T, S)(T value, S separator)
+{
+	return value.length ? split(value, separator) : null;
 }
 
 import std.random;

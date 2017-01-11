@@ -7,11 +7,11 @@
   "targetType": "sourceLibrary",
 
   "authors": [
-    "CyberShadow (Vladimir Panteleev)"
+    "Vladimir Panteleev <vladimir@thecybershadow.net>"
   ],
 
-  "systemDependencies": "curl, sqlite3",
-  "libs-posix" : ["curl", "sqlite3"],
+  "systemDependencies": "SQLite 3",
+  "libs-posix" : ["sqlite3"],
 
   "dependencies": {
     "openssl": {

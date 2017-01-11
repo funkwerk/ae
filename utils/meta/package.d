@@ -23,6 +23,7 @@ public import ae.utils.meta.binding;
 
 import std.algorithm;
 import std.range;
+import std.string;
 import std.traits;
 import std.typetuple;
 
@@ -368,32 +369,32 @@ else
 
 // ************************************************************************
 
-import std.conv;
-import std.string;
-
-string mixGenerateContructorProxies(T)()
-{
-	string s;
-	static if (__traits(hasMember, T, "__ctor"))
-		foreach (ctor; __traits(getOverloads, T, "__ctor"))
-		{
-			string[] declarationList, usageList;
-			foreach (i, param; ParameterTypeTuple!(typeof(&ctor)))
-			{
-				auto varName = "v" ~ text(i);
-				declarationList ~= param.stringof ~ " " ~ varName;
-				usageList ~= varName;
-			}
-			s ~= "this(" ~ declarationList.join(", ") ~ ") { super(" ~ usageList.join(", ") ~ "); }\n";
-		}
-	return s;
-}
-
 /// Generate constructors that simply call the parent class constructors.
 /// Based on http://forum.dlang.org/post/i3hpj0$2vc6$1@digitalmars.com
 mixin template GenerateContructorProxies()
 {
-	mixin(mixGenerateContructorProxies!(typeof(super))());
+	mixin(() {
+		import std.conv : text;
+		import std.string : join;
+		import std.traits : ParameterTypeTuple, fullyQualifiedName;
+
+		alias T = typeof(super);
+
+		string s;
+		static if (__traits(hasMember, T, "__ctor"))
+			foreach (ctor; __traits(getOverloads, T, "__ctor"))
+			{
+				string[] declarationList, usageList;
+				foreach (i, param; ParameterTypeTuple!(typeof(&ctor)))
+				{
+					auto varName = "v" ~ text(i);
+					declarationList ~= fullyQualifiedName!param ~ " " ~ varName;
+					usageList ~= varName;
+				}
+				s ~= "this(" ~ declarationList.join(", ") ~ ") { super(" ~ usageList.join(", ") ~ "); }\n";
+			}
+		return s;
+	} ());
 }
 
 unittest
@@ -476,9 +477,14 @@ template isVersion(string versionName)
 
 // ************************************************************************
 
+/// Identity function.
+auto ref T identity(T)(auto ref T value) { return value; }
+
 /// Shorter synonym for std.traits.Identity.
 /// Can be used to UFCS-chain static methods and nested functions.
 alias I(alias A) = A;
+
+// ************************************************************************
 
 /// Get f's ancestor which represents its "this" pointer.
 /// Skips template and mixin ancestors until it finds a struct or class.

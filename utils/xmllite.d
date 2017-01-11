@@ -65,7 +65,7 @@ enum XmlNodeType
 class XmlNode
 {
 	string tag;
-	string[string] attributes;
+	OrderedMap!(string, string) attributes;
 	XmlNode parent;
 	XmlNode[] children;
 	XmlNodeType type;
@@ -124,9 +124,22 @@ class XmlNode
 			case XmlNodeType.Node:
 				output.startTagWithAttributes(tag);
 				writeAttributes();
-				output.endAttributes();
-				writeChildren();
-				output.endTag(tag);
+				if (children.length)
+				{
+					bool oneLine = children.length == 1 && children[0].type == XmlNodeType.Text;
+					if (oneLine)
+						output.formatter.enabled = false;
+					output.endAttributes();
+					writeChildren();
+					output.endTag(tag);
+					if (oneLine)
+					{
+						output.formatter.enabled = true;
+						output.newLine();
+					}
+				}
+				else
+					output.endAttributesAndTag();
 				return;
 			case XmlNodeType.Meta:
 				assert(children.length == 0);
@@ -613,11 +626,11 @@ string readUntil(ref StringStream s, char until)
 unittest
 {
 	enum xmlText =
-		`<?xml version="1.0" encoding="UTF-8"?>`
-		`<quotes>`
-			`<quote author="Alan Perlis">`
-				`When someone says, &quot;I want a programming language in which I need only say what I want done,&quot; give him a lollipop.`
-			`</quote>`
+		`<?xml version="1.0" encoding="UTF-8"?>` ~
+		`<quotes>` ~
+			`<quote author="Alan Perlis">` ~
+				`When someone says, &quot;I want a programming language in which I need only say what I want done,&quot; give him a lollipop.` ~
+			`</quote>` ~
 		`</quotes>`;
 	auto doc = new XmlDocument(xmlText);
 	assert(doc.toString() == xmlText);
