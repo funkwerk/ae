@@ -44,6 +44,8 @@ private struct StringStream
 
 	char read() { return s[position++]; }
 	@property size_t size() { return s.length; }
+	size_t backup() const { return position; }
+	void restore(size_t backup) { this.position = backup; }
 }
 
 // ************************************************************************
@@ -305,6 +307,15 @@ struct XmlParseConfig
 static:
 	NodeCloseMode nodeCloseMode(string tag) { return NodeCloseMode.always; }
 	enum optionalParameterValues = false;
+	enum keepWhitespace = false;
+}
+
+static struct XmlParseConfigKeepWhitespace
+{
+static:
+	alias nodeCloseMode = XmlParseConfig.nodeCloseMode;
+	enum optionalParameterValues = XmlParseConfig.optionalParameterValues;
+	enum keepWhitespace = true;
 }
 
 /// Configuration for strict parsing of HTML5.
@@ -330,6 +341,7 @@ static:
 	}
 
 	enum optionalParameterValues = true;
+	enum keepWhitespace = true;
 }
 
 /// Parse an SGML-ish string into an XmlNode
@@ -399,6 +411,9 @@ void parseInto(Config)(XmlDocument d, ref StringStream s)
 void parseInto(Config)(XmlNode node, ref StringStream s)
 {
 	node.startPos = s.position;
+
+	auto leading_whitespace_backup = s.backup;
+
 	char c;
 	do
 		c = s.read();
@@ -408,6 +423,12 @@ void parseInto(Config)(XmlNode node, ref StringStream s)
 	{
 		node.type = XmlNodeType.Text;
 		string text;
+		static if (Config.keepWhitespace)
+		{
+			s.restore(leading_whitespace_backup);
+			c = s.read();
+		}
+
 		while (c!='<')
 		{
 			// TODO: check for EOF
@@ -512,9 +533,13 @@ void parseInto(Config)(XmlNode node, ref StringStream s)
 					{
 						while (true)
 						{
+							auto after_close_backup = s.backup;
 							skipWhitespace(s);
 							if (peek(s)=='<' && peek(s, 2)=='/')
 								break;
+
+							static if (Config.keepWhitespace) s.restore(after_close_backup);
+
 							try
 								node.addChild(parseNode!Config(s));
 							catch (XmlParseException e)
@@ -637,7 +662,21 @@ unittest
 			`</quote>` ~
 		`</quotes>`;
 	auto doc = new XmlDocument(xmlText);
-	assert(doc.toString() == xmlText);
+	assert(doc.toString() == xmlText, doc.toString());
+}
+
+unittest
+{
+	enum xmlText = "<p>
+		text with
+			<b>
+				embedded
+			</b>
+		formatting
+	</p>";
+	auto ss = StringStream(xmlText);
+	auto node = parseNode!XmlParseConfigKeepWhitespace(ss);
+	assert(node.toString() == xmlText, node.toString());
 }
 
 const dchar[string] entities;
