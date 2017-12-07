@@ -21,11 +21,7 @@ public import ae.utils.meta.binding;
 
 // ************************************************************************
 
-import std.algorithm;
-import std.range;
-import std.string;
 import std.traits;
-import std.typetuple;
 
 /**
  * Same as TypeTuple, but meant to be used with values.
@@ -79,6 +75,8 @@ unittest
 template expand(alias arr, size_t offset = 0)
 	if (isStaticArray!(typeof(arr)))
 {
+	import std.typetuple : AliasSeq;
+
 	static if (arr.length == offset)
 		alias expand = AliasSeq!();
 	else
@@ -206,10 +204,15 @@ template enumLength(T)
 deprecated alias EnumLength = enumLength;
 
 /// A range that iterates over all members of an enum.
-@property auto enumIota(T)() { return iota(T.init, enumLength!T); }
+@property auto enumIota(T)()
+{
+	import std.range : iota;
+	return iota(T.init, enumLength!T);
+}
 
 unittest
 {
+	import std.algorithm.comparison : equal;
 	enum E { a, b, c }
 	static assert(equal(enumIota!E, [E.a, E.b, E.c]));
 }
@@ -233,24 +236,44 @@ static template stringofArray(Args...)
 /// "names" can contain multiple names separated by slashes.
 static size_t findParameter(alias fun, string names)()
 {
+	import std.array : split;
+
 	foreach (name; names.split("/"))
 		foreach (i, param; ParameterIdentifierTuple!fun)
 			if (param == name)
 				return i;
-	assert(false, "Function " ~ __traits(identifier, fun) ~ " doesn't have a parameter called " ~ name);
+	assert(false, "Function " ~ __traits(identifier, fun) ~ " doesn't have a parameter called " ~ names);
 }
 
 /// ditto
 // Workaround for no "static alias" template parameters
 static size_t findParameter()(string[] searchedNames, string soughtNames, string funName)
 {
+	import std.array : split;
+
 	foreach (soughtName; soughtNames.split("/"))
 	{
+		import std.algorithm.searching : countUntil;
+
 		auto targetIndex = searchedNames.countUntil(soughtName);
 		if (targetIndex >= 0)
 			return targetIndex;
 	}
-	assert(false, "No argument %s in %s's parameters (%s)".format(soughtNames, funName, searchedNames).idup);
+
+	{
+		import std.format : format;
+
+		assert(false, "No argument %s in %s's parameters (%s)"
+			.format(soughtNames, funName, searchedNames).idup);
+	}
+}
+
+unittest
+{
+	static void fun(int a, int b, int c) {}
+
+	static assert(findParameter!(fun, "x/c") == 2);
+	assert(findParameter(["a", "b", "c"], "x/c", "fun") == 2);
 }
 
 /// Generates a function which passes its arguments to a struct, which is
@@ -259,6 +282,12 @@ template structFun(S)
 {
 	string gen()
 	{
+		import std.algorithm.iteration : map;
+		import std.array : join;
+		import std.format : format;
+		import std.meta : staticMap;
+		import std.range : iota;
+
 		enum identifierAt(int n) = __traits(identifier, S.tupleof[n]);
 		enum names = [staticMap!(identifierAt, RangeTuple!(S.tupleof.length))];
 
@@ -284,6 +313,52 @@ unittest
 	Test test = structFun!Test("banana");
 	assert(test.a is "banana");
 	assert(test.b == 42);
+}
+
+/// Evaluate all arguments and return the last argument.
+/// Can be used instead of the comma operator.
+/// Inspired by http://clhs.lisp.se/Body/s_progn.htm
+Args[$-1] progn(Args...)(lazy Args args)
+{
+	foreach (n; RangeTuple!(Args.length-1))
+		cast(void)args[n];
+	return args[$-1];
+}
+
+unittest
+{
+	// Test that expressions are correctly evaluated exactly once.
+	int a, b, c, d;
+	d = progn(a++, b++, c++);
+	assert(a==1 && b==1 && c == 1 && d == 0);
+	d = progn(a++, b++, ++c);
+	assert(a==2 && b==2 && c == 2 && d == 2);
+}
+
+unittest
+{
+	// Test void expressions.
+	int a, b;
+	void incA() { a++; }
+	void incB() { b++; }
+	progn(incA(), incB());
+	assert(a == 1 && b == 1);
+}
+
+/// Like progn, but return the first argument instead.
+Args[0] prog1(Args...)(lazy Args args)
+{
+	auto result = args[0];
+	foreach (n; RangeTuple!(Args.length-1))
+		cast(void)args[1+n];
+	return result;
+}
+
+unittest
+{
+	int a = 10, b = 20, c = 30;
+	int d = prog1(a++, b++, c++);
+	assert(a==11 && b==21 && c == 31 && d == 10);
 }
 
 // ************************************************************************
@@ -371,7 +446,7 @@ else
 
 /// Generate constructors that simply call the parent class constructors.
 /// Based on http://forum.dlang.org/post/i3hpj0$2vc6$1@digitalmars.com
-mixin template GenerateContructorProxies()
+mixin template GenerateConstructorProxies()
 {
 	mixin(() {
 		import std.conv : text;
@@ -397,6 +472,8 @@ mixin template GenerateContructorProxies()
 	} ());
 }
 
+deprecated alias GenerateContructorProxies = GenerateConstructorProxies;
+
 unittest
 {
 	class A
@@ -409,7 +486,7 @@ unittest
 
 	class B : A
 	{
-		mixin GenerateContructorProxies;
+		mixin GenerateConstructorProxies;
 	}
 
 	A a;
@@ -552,6 +629,26 @@ static assert(is(ResizeNumericType!(float, double.mant_dig) == double));
 alias ExpandNumericType(T, uint additionalBits) =
 	ResizeNumericType!(T, valueBits!T + additionalBits);
 
+/// Like ExpandNumericType, but do not error if the resulting type is
+/// too large to fit any native D type - just expand to the largest
+/// type of the same kind instead.
+template TryExpandNumericType(T, uint additionalBits)
+{
+	static if (is(typeof(ExpandNumericType!(T, additionalBits))))
+		alias TryExpandNumericType = ExpandNumericType!(T, additionalBits);
+	else
+		static if (is(T : ulong))
+			static if (isSigned!T)
+				alias TryExpandNumericType = long;
+			else
+				alias TryExpandNumericType = ulong;
+		else
+		static if (is(T : real))
+			alias TryExpandNumericType = real;
+		else
+			static assert(false, "Don't know how to expand type: " ~ T.stringof);
+}
+
 /// Unsigned integer type big enough to fit N bits of precision.
 template UnsignedBitsType(uint bits)
 {
@@ -589,4 +686,32 @@ template SignedBitsType(uint bits)
 		fields ~= field;
 	}
 	return fields;
+}
+
+/// Create a functor value type (bound struct) from an alias.
+template functor(alias fun)
+{
+	struct Functor
+	{
+		//alias opCall = fun;
+		auto opCall(T...)(auto ref T args) { return fun(args); }
+	}
+
+	Functor functor()
+	{
+		Functor f;
+		return f;
+	}
+}
+
+unittest
+{
+	static void caller(F)(F fun)
+	{
+		fun(42);
+	}
+
+	int result;
+	caller(functor!((int i) => result = i));
+	assert(result == 42);
 }

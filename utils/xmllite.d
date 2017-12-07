@@ -62,10 +62,12 @@ enum XmlNodeType
 	Text
 }
 
+alias XmlAttributes = OrderedMap!(string, string);
+
 class XmlNode
 {
 	string tag;
-	OrderedMap!(string, string) attributes;
+	XmlAttributes attributes;
 	XmlNode parent;
 	XmlNode[] children;
 	XmlNodeType type;
@@ -152,7 +154,9 @@ class XmlNode
 				output.doctype(tag);
 				return;
 			case XmlNodeType.Text:
+				output.startLine();
 				output.text(tag);
+				output.newLine();
 				return;
 			case XmlNodeType.Comment:
 				// TODO

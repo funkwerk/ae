@@ -35,19 +35,16 @@ T[] toArray(T)(ref T v)
 
 /// Return the value represented as an array of bytes.
 @property inout(ubyte)[] bytes(T)(ref inout(T) value)
-	if (!(is(T == class) || isDynamicArray!T))
+	if (!hasIndirections!T)
 {
 	return value.toArray().bytes;
 }
 
 /// ditto
 @property inout(ubyte)[] bytes(T)(inout(T) value)
-	if ( (is(T == class) || isDynamicArray!T))
+	if (is(T U : U[]) && !hasIndirections!U)
 {
-	static if (is(T U : U[]))
-		return cast(inout(ubyte)[])value;
-	else
-		return (cast(inout(ubyte)*)value)[0..__traits(classInstanceSize, T)];
+	return cast(inout(ubyte)[])value;
 }
 
 unittest
@@ -61,6 +58,37 @@ unittest
 
 	ubyte[1] sa = [5];
 	assert(sa.bytes == [5]);
+}
+
+/// Reverse of bytes()
+ref inout(T) fromBytes(T)(inout(ubyte)[] bytes)
+	if (!hasIndirections!T)
+{
+	assert(bytes.length == T.sizeof, "Data length mismatch for %s".format(T.stringof));
+	return *cast(inout(T)*)bytes.ptr;
+}
+
+/// ditto
+inout(T) fromBytes(T)(inout(ubyte)[] bytes)
+	if (is(T U : U[]) && !hasIndirections!U)
+{
+	return cast(inout(T))bytes;
+}
+
+unittest
+{
+	{       ubyte b = 5; assert(b.bytes.fromBytes!ubyte == 5); }
+	{ const ubyte b = 5; assert(b.bytes.fromBytes!ubyte == 5); }
+	struct S { ubyte b; }
+	{       ubyte b = 5; assert(b.bytes.fromBytes!S == S(5)); }
+}
+
+unittest
+{
+	struct S { ubyte a, b; }
+	ubyte[] arr = [1, 2];
+	assert(arr.fromBytes!S == S(1, 2));
+	assert(arr.fromBytes!(S[]) == [S(1, 2)]);
 }
 
 int memcmp(in ubyte[] a, in ubyte[] b)
@@ -324,7 +352,28 @@ T queuePop(T)(ref T[] arr)
 }
 
 T shift(T)(ref T[] arr) { T result = arr[0]; arr = arr[1..$]; return result; }
+T[] shift(T)(ref T[] arr, size_t n) { T[] result = arr[0..n]; arr = arr[n..$]; return result; }
+T[N] shift(size_t N, T)(ref T[] arr) { T[N] result = cast(T[N])(arr[0..N]); arr = arr[N..$]; return result; }
 void unshift(T)(ref T[] arr, T value) { arr.insertInPlace(0, value); }
+void unshift(T)(ref T[] arr, T[] value) { arr.insertInPlace(0, value); }
+
+unittest
+{
+	int[] arr = [1, 2, 3];
+	assert(arr.shift == 1);
+	assert(arr == [2, 3]);
+	assert(arr.shift(2) == [2, 3]);
+	assert(arr == []);
+
+	arr = [3];
+	arr.unshift([1, 2]);
+	assert(arr == [1, 2, 3]);
+	arr.unshift(0);
+	assert(arr == [0, 1, 2, 3]);
+
+	assert(arr.shift!2 == [0, 1]);
+	assert(arr == [2, 3]);
+}
 
 /// If arr starts with prefix, slice it off and return true.
 /// Otherwise leave arr unchaned and return false.

@@ -105,7 +105,7 @@ T[] fastReplace(T)(T[] what, T[] from, T[] to)
 				p++;
 				p = cast(T*)memchr(p, fromc, end - p);
 			} while (p);
-			return assumeUnique(result);
+			return result;
 		}
 		else
 		{
@@ -158,7 +158,7 @@ T[] fastReplace(T)(T[] what, T[] from, T[] to)
 				}
 				while (p);
 
-				return assumeUnique(result);
+				return result;
 			}
 			else
 			{
@@ -282,6 +282,44 @@ unittest
 {
 	assert(splitAsciiLines("a\nb\r\nc\r\rd\n\re\r\n\nf") == ["a", "b", "c\r\rd", "\re", "", "f"]);
 	assert(splitAsciiLines(string.init) == splitLines(string.init));
+}
+
+/// Like std.string.split (one argument version, which splits by
+/// whitespace), but only splits by ASCII and does not autodecode.
+T[][] asciiSplit(T)(T[] text)
+	if (is(Unqual!T == char))
+{
+	bool inWhitespace = true;
+	size_t wordStart;
+	T[][] result;
+
+	void endWord(size_t p)
+	{
+		if (!inWhitespace)
+		{
+			result ~= text[wordStart..p];
+			inWhitespace = true;
+		}
+	}
+
+	foreach (p, c; text)
+		if (std.ascii.isWhite(c))
+			endWord(p);
+		else
+			if (inWhitespace)
+			{
+				inWhitespace = false;
+				wordStart = p;
+			}
+	endWord(text.length);
+	return result;
+}
+
+unittest
+{
+	foreach (s; ["", " ", "a", " a", "a ", "a b", " a b", "a b ", " a b ",
+			"  ", "  a", "a  ", "a  b", "a  b  ", "a b  c"])
+		assert(s.split == s.asciiSplit, format("Got %s, expected %s", s.asciiSplit, s.split));
 }
 
 T[] asciiStrip(T)(T[] s)
@@ -455,7 +493,7 @@ string rawToUTF8(in char[] s)
 }
 
 /// Undo rawToUTF8.
-ascii UTF8ToRaw(in char[] r)
+ascii UTF8ToRaw(in char[] r) pure
 {
 	auto s = new char[r.length];
 	size_t i = 0;
@@ -464,7 +502,7 @@ ascii UTF8ToRaw(in char[] r)
 		assert(c < '\u0100');
 		s[i++] = cast(char)c;
 	}
-	return assumeUnique(s[0..i]);
+	return s[0..i];
 }
 
 unittest
@@ -575,32 +613,131 @@ T fromHex(T : ulong = uint, C)(const(C)[] s)
 	return result;
 }
 
-ubyte[] arrayFromHex(in char[] hex, ubyte[] buf = null)
+ubyte[] arrayFromHex(in char[] hex)
 {
-	if (buf is null)
-		buf = new ubyte[hex.length/2];
-	else
-		assert(buf.length == hex.length/2);
-	for (int i=0; i<hex.length; i+=2)
-		buf[i/2] = cast(ubyte)(
-			hexDigits.indexOf(hex[i  ], CaseSensitive.no)*16 +
-			hexDigits.indexOf(hex[i+1], CaseSensitive.no)
-		);
+	auto buf = new ubyte[hex.length/2];
+	arrayFromHex(hex, buf);
 	return buf;
 }
 
-string toHex(alias digits = hexDigits)(in ubyte[] data, char[] buf = null)
+struct HexParseConfig
 {
-	if (buf is null)
-		buf = new char[data.length*2];
-	else
-		assert(buf.length == data.length*2);
-	foreach (i, b; data)
+	bool checked = true;
+	bool lower = true;
+	bool upper = true;
+}
+
+ubyte parseHexDigit(HexParseConfig config = HexParseConfig.init)(char c)
+{
+	static assert(config.lower || config.upper,
+		"Must parse at least either lower or upper case digits");
+	static if (config.checked)
 	{
-		buf[i*2  ] = digits[b>>4];
-		buf[i*2+1] = digits[b&15];
+		switch (c)
+		{
+			case '0': .. case '9': return cast(ubyte)(c - '0');
+			case 'a': .. case 'f': return cast(ubyte)(c - 'a' + 10);
+			case 'A': .. case 'F': return cast(ubyte)(c - 'A' + 10);
+			default: throw new Exception("Bad hex digit: " ~ c);
+		}
 	}
-	return assumeUnique(buf);
+	else
+	{
+		if (c <= '9')
+			return cast(ubyte)(c - '0');
+		static if (config.lower && config.upper)
+		{
+			if (c < 'a')
+				return cast(ubyte)(c - 'A' + 10);
+			else
+				return cast(ubyte)(c - 'a' + 10);
+		}
+		else
+			static if (config.lower)
+				return cast(ubyte)(c - 'a' + 10);
+			else
+				return cast(ubyte)(c - 'A' + 10);
+	}
+}
+
+void arrayFromHex(HexParseConfig config = HexParseConfig.init)(in char[] hex, ubyte[] buf)
+{
+	assert(buf.length == hex.length/2, "Wrong buffer size for arrayFromHex");
+	for (int i=0; i<hex.length; i+=2)
+		buf[i/2] = cast(ubyte)(
+			parseHexDigit!config(hex[i  ])*16 +
+			parseHexDigit!config(hex[i+1])
+		);
+}
+
+/// Fast version for static arrays of known length.
+void sarrayFromHex(HexParseConfig config = HexParseConfig.init, size_t N, Hex)(in ref Hex hex, ref ubyte[N] buf)
+if (is(Hex == char[N*2]))
+{
+	foreach (i; 0..N/4)
+	{
+		ulong chars = (cast(ulong*)hex.ptr)[i];
+		uint res =
+			(parseHexDigit!config((chars >> (8*0)) & 0xFF) << (4*1)) |
+			(parseHexDigit!config((chars >> (8*1)) & 0xFF) << (4*0)) |
+			(parseHexDigit!config((chars >> (8*2)) & 0xFF) << (4*3)) |
+			(parseHexDigit!config((chars >> (8*3)) & 0xFF) << (4*2)) |
+			(parseHexDigit!config((chars >> (8*4)) & 0xFF) << (4*5)) |
+			(parseHexDigit!config((chars >> (8*5)) & 0xFF) << (4*4)) |
+			(parseHexDigit!config((chars >> (8*6)) & 0xFF) << (4*7)) |
+			(parseHexDigit!config((chars >> (8*7)) & 0xFF) << (4*6));
+		(cast(uint*)buf.ptr)[i] = res;
+	}
+	foreach (i; N/4*4..N)
+		buf[i] = cast(ubyte)(
+			parseHexDigit!config(hex[i*2  ])*16 +
+			parseHexDigit!config(hex[i*2+1])
+		);
+}
+
+unittest
+{
+	foreach (checked; TypeTuple!(false, true))
+		foreach (lower; TypeTuple!(false, true))
+			foreach (upper; TypeTuple!(false, true))
+				static if (lower || upper)
+				{
+					enum config = HexParseConfig(checked, lower, upper);
+					char[18] buf;
+					foreach (n; 0..18)
+						if (lower && upper ? n & 1 : upper)
+							buf[n] = hexDigits[n % 16];
+						else
+							buf[n] = lowerHexDigits[n % 16];
+					ubyte[9] res;
+					sarrayFromHex!config(buf, res);
+					assert(res == [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x01], text(res));
+				}
+}
+
+template toHex(alias digits = hexDigits)
+{
+	char[] toHex(in ubyte[] data, char[] buf) pure
+	{
+		assert(buf.length == data.length*2);
+		foreach (i, b; data)
+		{
+			buf[i*2  ] = digits[b>>4];
+			buf[i*2+1] = digits[b&15];
+		}
+		return buf;
+	}
+
+	string toHex(in ubyte[] data) pure
+	{
+		auto buf = new char[data.length*2];
+		foreach (i, b; data)
+		{
+			buf[i*2  ] = digits[b>>4];
+			buf[i*2+1] = digits[b&15];
+		}
+		return buf;
+	}
 }
 
 alias toLowerHex = toHex!lowerHexDigits;
@@ -612,6 +749,20 @@ void toHex(T : ulong, size_t U = T.sizeof*2)(T n, ref char[U] buf)
 		buf[i] = hexDigits[n & 0xF];
 		n >>= 4;
 	}
+}
+
+unittest
+{
+	ubyte[] bytes = [0x12, 0x34];
+	assert(toHex(bytes) == "1234");
+}
+
+unittest
+{
+	ubyte[] bytes = [0x12, 0x34];
+	char[] buf = new char[4];
+	toHex(bytes, buf);
+	assert(buf == "1234");
 }
 
 unittest
@@ -790,12 +941,11 @@ string selectBestFrom(in string[] items, string target, float threshold = 0.7)
 
 // ************************************************************************
 
-import std.random;
 
 string randomString(int length=20, string chars="abcdefghijklmnopqrstuvwxyz")
 {
-	char[] result = new char[length];
-	foreach (ref c; result)
-		c = chars[uniform(0, $)];
-	return assumeUnique(result);
+	import std.random;
+	import std.range;
+
+	return length.iota.map!(n => chars[uniform(0, $)]).array;
 }
