@@ -412,7 +412,10 @@ void parseInto(Config)(XmlNode node, ref StringStream s)
 {
 	node.startPos = s.position;
 
-	auto leading_whitespace_backup = s.backup;
+	static if (Config.keepWhitespace)
+	{
+		auto leading_whitespace_backup = s.backup;
+	}
 
 	char c;
 	do
@@ -533,7 +536,7 @@ void parseInto(Config)(XmlNode node, ref StringStream s)
 					{
 						while (true)
 						{
-							auto after_close_backup = s.backup;
+							static if (Config.keepWhitespace) auto after_close_backup = s.backup;
 							skipWhitespace(s);
 							if (peek(s)=='<' && peek(s, 2)=='/')
 								break;
