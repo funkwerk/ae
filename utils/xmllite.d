@@ -414,7 +414,7 @@ void parseInto(Config)(XmlNode node, ref StringStream s)
 
 	static if (Config.keepWhitespace)
 	{
-		auto leading_whitespace_backup = s.backup;
+		auto leadingWhitespaceBackup = s.backup;
 	}
 
 	char c;
@@ -428,7 +428,7 @@ void parseInto(Config)(XmlNode node, ref StringStream s)
 		string text;
 		static if (Config.keepWhitespace)
 		{
-			s.restore(leading_whitespace_backup);
+			s.restore(leadingWhitespaceBackup);
 			c = s.read();
 		}
 
@@ -536,12 +536,12 @@ void parseInto(Config)(XmlNode node, ref StringStream s)
 					{
 						while (true)
 						{
-							static if (Config.keepWhitespace) auto after_close_backup = s.backup;
+							static if (Config.keepWhitespace) auto afterCloseBackup = s.backup;
 							skipWhitespace(s);
 							if (peek(s)=='<' && peek(s, 2)=='/')
 								break;
 
-							static if (Config.keepWhitespace) s.restore(after_close_backup);
+							static if (Config.keepWhitespace) s.restore(afterCloseBackup);
 
 							try
 								node.addChild(parseNode!Config(s));
