@@ -44,8 +44,6 @@ private struct StringStream
 
 	char read() { return s[position++]; }
 	@property size_t size() { return s.length; }
-	size_t backup() const { return position; }
-	void restore(size_t backup) { this.position = backup; }
 }
 
 // ************************************************************************
@@ -414,7 +412,7 @@ void parseInto(Config)(XmlNode node, ref StringStream s)
 
 	static if (Config.keepWhitespace)
 	{
-		auto leadingWhitespaceBackup = s.backup;
+		auto leadingWhitespaceBackup = s.position;
 	}
 
 	char c;
@@ -428,7 +426,7 @@ void parseInto(Config)(XmlNode node, ref StringStream s)
 		string text;
 		static if (Config.keepWhitespace)
 		{
-			s.restore(leadingWhitespaceBackup);
+			s.position = leadingWhitespaceBackup;
 			c = s.read();
 		}
 
@@ -536,12 +534,12 @@ void parseInto(Config)(XmlNode node, ref StringStream s)
 					{
 						while (true)
 						{
-							static if (Config.keepWhitespace) auto afterCloseBackup = s.backup;
+							static if (Config.keepWhitespace) auto afterCloseBackup = s.position;
 							skipWhitespace(s);
 							if (peek(s)=='<' && peek(s, 2)=='/')
 								break;
 
-							static if (Config.keepWhitespace) s.restore(afterCloseBackup);
+							static if (Config.keepWhitespace) s.position = afterCloseBackup;
 
 							try
 								node.addChild(parseNode!Config(s));
