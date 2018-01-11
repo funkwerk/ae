@@ -62,10 +62,12 @@ enum XmlNodeType
 	Text
 }
 
+alias XmlAttributes = OrderedMap!(string, string);
+
 class XmlNode
 {
 	string tag;
-	OrderedMap!(string, string) attributes;
+	XmlAttributes attributes;
 	XmlNode parent;
 	XmlNode[] children;
 	XmlNodeType type;
@@ -152,7 +154,9 @@ class XmlNode
 				output.doctype(tag);
 				return;
 			case XmlNodeType.Text:
+				output.startLine();
 				output.text(tag);
+				output.newLine();
 				return;
 			case XmlNodeType.Comment:
 				// TODO
@@ -301,6 +305,15 @@ struct XmlParseConfig
 static:
 	NodeCloseMode nodeCloseMode(string tag) { return NodeCloseMode.always; }
 	enum optionalParameterValues = false;
+	enum keepWhitespace = false;
+}
+
+static struct XmlParseConfigKeepWhitespace
+{
+static:
+	alias nodeCloseMode = XmlParseConfig.nodeCloseMode;
+	enum optionalParameterValues = XmlParseConfig.optionalParameterValues;
+	enum keepWhitespace = true;
 }
 
 /// Configuration for strict parsing of HTML5.
@@ -326,6 +339,7 @@ static:
 	}
 
 	enum optionalParameterValues = true;
+	enum keepWhitespace = true;
 }
 
 /// Parse an SGML-ish string into an XmlNode
@@ -395,6 +409,12 @@ void parseInto(Config)(XmlDocument d, ref StringStream s)
 void parseInto(Config)(XmlNode node, ref StringStream s)
 {
 	node.startPos = s.position;
+
+	static if (Config.keepWhitespace)
+	{
+		auto leadingWhitespaceBackup = s.position;
+	}
+
 	char c;
 	do
 		c = s.read();
@@ -404,6 +424,12 @@ void parseInto(Config)(XmlNode node, ref StringStream s)
 	{
 		node.type = XmlNodeType.Text;
 		string text;
+		static if (Config.keepWhitespace)
+		{
+			s.position = leadingWhitespaceBackup;
+			c = s.read();
+		}
+
 		while (c!='<')
 		{
 			// TODO: check for EOF
@@ -508,9 +534,13 @@ void parseInto(Config)(XmlNode node, ref StringStream s)
 					{
 						while (true)
 						{
+							static if (Config.keepWhitespace) auto afterCloseBackup = s.position;
 							skipWhitespace(s);
 							if (peek(s)=='<' && peek(s, 2)=='/')
 								break;
+
+							static if (Config.keepWhitespace) s.position = afterCloseBackup;
+
 							try
 								node.addChild(parseNode!Config(s));
 							catch (XmlParseException e)
@@ -633,7 +663,21 @@ unittest
 			`</quote>` ~
 		`</quotes>`;
 	auto doc = new XmlDocument(xmlText);
-	assert(doc.toString() == xmlText);
+	assert(doc.toString() == xmlText, doc.toString());
+}
+
+unittest
+{
+	enum xmlText = "<p>
+		text with
+			<b>
+				embedded
+			</b>
+		formatting
+	</p>";
+	auto ss = StringStream(xmlText);
+	auto node = parseNode!XmlParseConfigKeepWhitespace(ss);
+	assert(node.toString() == xmlText, node.toString());
 }
 
 const dchar[string] entities;
