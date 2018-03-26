@@ -4,7 +4,7 @@
   "homepage": "https://github.com/CyberShadow/ae",
   "license": "MPL-2.0",
 
-  "targetType": "sourceLibrary",
+  "targetType": "library",
 
   "authors": [
     "Vladimir Panteleev <vladimir@thecybershadow.net>"
@@ -23,7 +23,7 @@
   "subPackages": [
     {
       "name": "net-http-server",
-      "targetType": "sourceLibrary",
+      "targetType": "library",
       "sourceFiles": [
         "net/http/server.d",
         "net/http/server.d",
