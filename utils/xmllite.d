@@ -18,9 +18,10 @@ module ae.utils.xmllite;
 
 // TODO: better/safer handling of malformed XML
 
-import std.string;
 import std.ascii;
+import std.algorithm;
 import std.exception;
+import std.string;
 
 import ae.utils.array;
 import ae.utils.exception;
@@ -65,6 +66,7 @@ enum XmlNodeType
 class XmlNode
 {
 	string tag;
+	string namespace;
 	OrderedMap!(string, string) attributes;
 	XmlNode parent;
 	XmlNode[] children;
@@ -74,10 +76,33 @@ class XmlNode
 	this(ref StringStream s) { parseInto!XmlParseConfig(this, s); }
 	this(string s) { auto ss = StringStream(s); this(ss); }
 
-	this(XmlNodeType type = XmlNodeType.None, string tag = null)
+	this(XmlNodeType type = XmlNodeType.None, string tag = null, string namespace = null)
 	{
+		this.namespace = namespace;
 		this.type = type;
 		this.tag = tag;
+	}
+
+	@property void name(string name)
+	{
+		if (auto split = name.findSplit(":"))
+		{
+			this.namespace = split[0];
+			this.tag = split[2];
+		}
+		else
+		{
+			this.tag = name;
+		}
+	}
+
+	@property string name() const
+	{
+		if (this.namespace.length > 0)
+		{
+			return format!"%s:%s"(this.namespace, this.tag);
+		}
+		return this.tag;
 	}
 
 	XmlNode addAttribute(string name, string value)
@@ -122,7 +147,7 @@ class XmlNode
 				writeChildren();
 				return;
 			case XmlNodeType.Node:
-				output.startTagWithAttributes(tag);
+				output.startTagWithAttributes(name);
 				writeAttributes();
 				if (children.length)
 				{
@@ -131,7 +156,7 @@ class XmlNode
 						output.formatter.enabled = false;
 					output.endAttributes();
 					writeChildren();
-					output.endTag(tag);
+					output.endTag(name);
 					if (oneLine)
 					{
 						output.formatter.enabled = true;
@@ -187,36 +212,58 @@ class XmlNode
 		}
 	}
 
-	final XmlNode findChild(string tag)
+	final XmlNode findChild(string name)
 	{
-		foreach (child; children)
-			if (child.type == XmlNodeType.Node && child.tag == tag)
-				return child;
+		if (auto parts = name.findSplit(":"))
+		{
+			auto namespace = parts[0];
+			auto tag = parts[2];
+			foreach (child; children)
+				if (child.type == XmlNodeType.Node && child.tag == tag && child.namespace == namespace)
+					return child;
+		}
+		else
+		{
+			foreach (child; children)
+				if (child.type == XmlNodeType.Node && child.tag == name)
+					return child;
+		}
 		return null;
 	}
 
-	final XmlNode[] findChildren(string tag)
+	final XmlNode[] findChildren(string name)
 	{
 		XmlNode[] result;
-		foreach (child; children)
-			if (child.type == XmlNodeType.Node && child.tag == tag)
-				result ~= child;
+		if (auto parts = name.findSplit(":"))
+		{
+			auto namespace = parts[0];
+			auto tag = parts[2];
+			foreach (child; children)
+				if (child.type == XmlNodeType.Node && child.tag == tag && child.namespace == namespace)
+					result ~= child;
+		}
+		else
+		{
+			foreach (child; children)
+				if (child.type == XmlNodeType.Node && child.tag == name)
+					result ~= child;
+		}
 		return result;
 	}
 
-	final XmlNode opIndex(string tag)
+	final XmlNode opIndex(string name)
 	{
-		auto node = findChild(tag);
+		auto node = findChild(name);
 		if (node is null)
-			throw new XmlParseException("No such child: " ~ tag);
+			throw new XmlParseException("No such child: " ~ name);
 		return node;
 	}
 
-	final XmlNode opIndex(string tag, size_t index)
+	final XmlNode opIndex(string name, size_t index)
 	{
-		auto nodes = findChildren(tag);
+		auto nodes = findChildren(name);
 		if (index >= nodes.length)
-			throw new XmlParseException(format("Can't get node with tag %s and index %d, there are only %d children with that tag", tag, index, nodes.length));
+			throw new XmlParseException(format("Can't get node with name %s and index %d, there are only %d children with that name", name, index, nodes.length));
 		return nodes[index];
 	}
 
@@ -242,7 +289,7 @@ class XmlNode
 
 	final @property XmlNode dup()
 	{
-		auto result = new XmlNode(type, tag);
+		auto result = new XmlNode(type, tag, namespace);
 		result.attributes = attributes.dup;
 		result.children.reserve(children.length);
 		foreach (child; children)
@@ -480,7 +527,7 @@ void parseInto(Config)(XmlNode node, ref StringStream s)
 		else
 		{
 			node.type = XmlNodeType.Node;
-			node.tag = c~readWord(s);
+			node.name = c~readWord(s);
 			while (true)
 			{
 				skipWhitespace(s);
@@ -519,7 +566,7 @@ void parseInto(Config)(XmlNode node, ref StringStream s)
 						expect(s, '<');
 						expect(s, '/');
 						auto word = readWord(s);
-						if (word != node.tag)
+						if (word != node.name)
 						{
 							auto closeMode2 = Config.nodeCloseMode(word);
 							if (closeMode2 == NodeCloseMode.implicit)
@@ -527,11 +574,11 @@ void parseInto(Config)(XmlNode node, ref StringStream s)
 								auto parent = node.parent;
 								enforce!XmlParseException(parent, "Top-level close tag for implicitly-closed node </%s>".format(word));
 								enforce!XmlParseException(parent.children.length, "First-child close tag for implicitly-closed node </%s>".format(word));
-								enforce!XmlParseException(parent.children[$-1].tag == word, "Non-empty implicitly-closed node <%s>".format(word));
+								enforce!XmlParseException(parent.children[$-1].name == word, "Non-empty implicitly-closed node <%s>".format(word));
 								continue;
 							}
 							else
-								enforce!XmlParseException(word == node.tag, "Expected </%s>, not </%s>".format(node.tag, word));
+								enforce!XmlParseException(word == node.name, "Expected </%s>, not </%s>".format(node.name, word));
 						}
 						expect(s, '>');
 						break;
@@ -634,6 +681,22 @@ unittest
 		`</quotes>`;
 	auto doc = new XmlDocument(xmlText);
 	assert(doc.toString() == xmlText);
+}
+
+unittest
+{
+	enum xmlText =
+		`<?xml version="1.0" encoding="UTF-8"?>` ~
+		`<ns:quotes>` ~
+			`<ns2:quote ns2:author="Alan Perlis">` ~
+				`When someone says, &quot;I want a programming language in which I need only say what I want done,&quot; give him a lollipop.` ~
+			`</ns2:quote>` ~
+		`</ns:quotes>`;
+	auto doc = new XmlDocument(xmlText);
+	assert(doc.findChild("quotes"));
+	assert(doc.findChild("ns:quotes"));
+	assert(doc.findChild("quotes").namespace == "ns");
+	assert(doc.toString() == xmlText, doc.toString());
 }
 
 const dchar[string] entities;
